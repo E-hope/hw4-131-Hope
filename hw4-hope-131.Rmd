@@ -1,0 +1,256 @@
+---
+title: "hw4-131-hope"
+author: "Evan Hope"
+date: "5/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First lets import the same packages from hw3...
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+```
+```{r}
+library(tidymodels)
+```
+```{r}
+library(corrplot)
+library(ggthemes)
+library(ISLR2) 
+library(discrim)
+```
+```{r}
+library(poissonreg)
+library(corrr)
+library(klaR)
+```
+```{r}
+tidymodels_prefer()
+```
+
+Reading in the data and setting the seed…
+```{r}
+set.seed(522022)
+
+titanic_data <- read.csv("C:/Users/Ordai/OneDrive/Desktop/School/Stats/PSTAT 131/hw3-131-Hope/titanic.csv")
+```
+
+We must now change “survived” and “plclass” to factors while also reordering the levels of the survived.
+
+
+```{r}
+titanic_data$survived <- factor(titanic_data$survived, levels = c("Yes", "No"))
+
+titanic_data$pclass <- factor(titanic_data$pclass)
+```
+
+checking to make sure theyre factors now...
+```{r}
+is.factor(titanic_data$survived)
+is.factor(titanic_data$pclass)
+```
+
+
+Question 1.) splitting the data
+
+```{r}
+titanic_data_split <- initial_split(titanic_data, prop = 0.70, strata = survived)
+
+titanic_train <- training(titanic_data_split)
+titanic_test <- testing(titanic_data_split)
+```
+
+Creating a recipe for this dataset identical to the recipe I used in Homework 3.
+
+```{r}
+titanic_survival <- recipe(survived ~ pclass + sex + age + sib_sp + parch + fare, data = titanic_train)%>%
+  step_impute_linear(age) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_numeric()) %>%
+  step_interact(terms = ~ sex_male:fare) %>%
+  step_interact(terms = ~ age:fare)
+```
+
+
+Question 2.) k-fold cross validation.
+
+```{r}
+titanic_train_kfold <- vfold_cv(titanic_train, v = 10)
+```
+
+Question 3.) 
+
+Here, we are 'folding' the data set via k-fold cross-validation. k-fold cross-validation helps assess the performance of the model we have constructed. Within the training data set ONLY we create 'k' subsets/folds of the data. A model is then made for each fold. In order to find out the best degree value of our polynomial regression model, k-fold cross-validation can be used to find the 'best fit' model.
+
+The reason we would prefer k-fold CV method is because we have a large enough data set to split it into about even length k=10 subsets to gather information from. Folding the data 10 times with a smaller dataset would return unreliable stats as the subsets/folds would contain less observations. 
+
+Using the entire training data set to resample is called the validation set approach. 
+
+
+Question 4.) & Question 5.) (combined) Creating the workflow and fitting the model for...
+
+
+I.) Logistic Regression
+```{r}
+#Setting up the engine
+
+log_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+#Setting up the workflow…
+
+log_wkflow <- workflow() %>% 
+  add_model(log_reg) %>% 
+  add_recipe(titanic_survival)
+
+
+#Applying the workflow...
+
+titanic_log_fit_kfold <- fit_resamples(log_wkflow, titanic_train_kfold)
+```
+
+II.) Linear Discriminant Analysis
+```{r}
+# Engine
+linear_discriminant_analysis <- discrim_linear() %>% 
+  set_engine("MASS") %>% 
+  set_mode("classification")
+
+#Setting up the workflow...
+
+linear_disc_wkflow <- workflow() %>% 
+  add_model(linear_discriminant_analysis) %>% 
+  add_recipe(titanic_survival)
+
+
+#Applying the workflow...
+
+titanic_linear_disc_fit_kfold <- fit_resamples(linear_disc_wkflow, titanic_train_kfold)
+```
+
+III.) Quadratic Discriminant Analysis
+```{r}
+# Engine
+quad_disc_analysis <- discrim_linear() %>% 
+  set_engine("MASS") %>% 
+  set_mode("classification")
+
+#Setting up the workflow...
+
+quad_disc_wkflow <- workflow() %>% 
+  add_model(quad_disc_analysis) %>% 
+  add_recipe(titanic_survival)
+
+
+#Applying the workflow...
+
+titanic_quad_disc_fit_kfold <- fit_resamples(quad_disc_wkflow, titanic_train_kfold)
+```
+
+In total, across all folds, we will be fitting 30 models. That is because we are using the k=10 fold. Which creates 10 folds. 1 model per fold PLUS the other two we have to apply (LDA and QDA) will result in 10+10+10 = 30 total models.
+
+
+Question 6.) Collect_metrics()...
+
+Metrics on the models...
+```{r}
+log_metrics = collect_metrics(titanic_log_fit_kfold)
+
+linear_disc_metrics = collect_metrics(titanic_linear_disc_fit_kfold)
+
+quad_disc_metrics = collect_metrics(titanic_quad_disc_fit_kfold)
+```
+
+```{r}
+
+# converting the tibbles into sorted vectors for  each model
+log_mean_vector = log_metrics %>%
+  pull(mean)
+
+log_stderr_vector = log_metrics %>%
+  pull(std_err)
+
+linear_disc_mean_vector = linear_disc_metrics %>%
+  pull(mean)
+
+linear_disc_stderr_vector = linear_disc_metrics %>%
+  pull(std_err)
+
+quad_disc_mean_vector = quad_disc_metrics %>%
+  pull(mean)
+
+quad_disc_stderr_vector = quad_disc_metrics %>%
+  pull(std_err)
+```
+
+
+```{r}
+# Since there are two values in each vector, we will index each one by [1] in order to get the correct values for the "accuracy" row.
+
+log_mean = log_mean_vector[1]
+log_stderr = log_stderr_vector[1]
+
+lin_disc_mean = linear_disc_mean_vector[1]
+lin_disc_stderr = linear_disc_stderr_vector[1]
+
+quad_disc_mean = quad_disc_mean_vector[1]
+quad_disc_stderr = quad_disc_stderr_vector[1]
+```
+
+Checking means:
+```{r}
+log_mean
+lin_disc_mean
+quad_disc_mean
+```
+
+Checking the std error:
+```{r}
+log_stderr
+lin_disc_stderr
+quad_disc_stderr
+```
+
+The model that performed the best appears to be the logistic regression model as it has the lowest standard error and highest mean accuracy value.
+
+
+Question 7.) Fitting the logistic regression model to the entire training set...
+```{r}
+titanic_logreg_fit_ <- fit(log_wkflow, titanic_train)
+```
+
+
+Question 8.) Assessing our logistic regression model to the test set now...
+
+```{r}
+titanic_test_fit <- predict(titanic_logreg_fit_, new_data = titanic_test %>% select(-survived))
+```
+
+We will now use bind_cols() to attach the actual observed values along with the predicted values.
+
+
+```{r}
+titanic_test_fit_bindcol <- bind_cols(titanic_test_fit, titanic_test %>% select(survived))
+```
+
+Calculating the accuracy...
+
+```{r}
+logistic_reg_acc <- augment(titanic_logreg_fit_, new_data = titanic_test) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+
+logistic_reg_acc
+```
+As we can see, our model's testing accuracy is about 79.85% This is pretty good considering the average accuracy across all 10 folds in the training set was about 81.22%. This leaves a difference of about 1.37% between the 10 fold training accuracy mean and the test accuracy.
+
+
+
+
+
+
